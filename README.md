@@ -42,8 +42,6 @@ The report answers 24 structured business questions grouped into 6 sections that
 
 5. **Audit inventory health across the network.** Quantify how many transactions occurred when physical stock was already below the reorder point, identify the most exposed categories and stores, and flag stores where system stock data cannot be trusted for replenishment decisions.
 
-6. **Build a manager accountability layer.** Combine revenue rank, margin rank, and inventory discipline into a composite scorecard. Use it to recognize strong operators and give underperformers specific, data-backed targets for 2026.
-
 ---
 
 ## III — Target Audience
@@ -55,7 +53,6 @@ The report answers 24 structured business questions grouped into 6 sections that
 | 3 — Individual Store Performance | Top/bottom stores, regional ranking, dual underperformers | Sales Head + Store Managers | Store names and revenue gaps appear here. |
 | 4 — Are Promotions Working? | Promo uplift by category and by store | Sales Head | Requires familiarity with the category portfolio. |
 | 5 — Inventory Health | Stockout risk, stock accuracy, negative system stock | Operations + Store Managers | Most operationally specific section. |
-| 6 — Manager Accountability | Per-manager scorecard, composite rank | Store Managers | Individual names and composite scores. |
 
 ---
 
@@ -97,6 +94,8 @@ fact_inventory ◄─── dim_store
 - `fact_inventory[store_id]` → `dim_store[store_id]` (Many-to-One)
 - `fact_inventory[product_id]` → `dim_product[product_id]` (Many-to-One)
 
+<img width="3136" height="1534" alt="Image" src="https://github.com/user-attachments/assets/9cffd9b3-384a-4d32-aebc-eb7f382eb8bc" />
+
 ### Dataset Coverage
 
 | Dimension | Detail |
@@ -117,6 +116,8 @@ Affected stores: STR002, STR009, STR014, STR017 (twice), STR001.
 
 **Issue 2 — Sales below reorder point (196 transactions):**
 19.6% of transactions in `fact_orders` occurred when `stock_on_hand < reorder_point`. These are real completed sales — not a data error — but they indicate the business has been drawing down safety stock at scale throughout 2025.
+
+**Issue 3 - The inventory values in this dataset  (`stock_on_hand`, `stock_system` and `reorder_point`) are a single point-in-time snapshot, not a running balance**. They were captured once per store+product combination and then stamped onto every sales transaction that shares the same store and product — regardless of when the sale happened. Hence, I retrieved only the latest transactions of each combination `product_id` + `store_id` into 1 consolidated table for further calculations and mapping with `fact_inventory` table.
 
 ---
 
@@ -346,7 +347,9 @@ STR017 appears twice, indicating a possible systematic sync failure at that stor
 
 The dashboard covers 28 slides across 6 sections. Each section opens with a divider slide and is self-contained for its intended audience.
 
-### Section 1 — Business at a Glance *(Slides 3–6 · Audience: Everyone)*
+### Section 1 — Business at a Glance 
+
+*(Slides 3–6 · Audience: Everyone)*
 
 No store names. Board-safe. Answers 4 questions using KPI Cards, a monthly column chart, and a Donut chart.
 
@@ -358,6 +361,7 @@ No store names. Board-safe. Answers 4 questions using KPI Cards, a monthly colum
 | Q4 | What is the Online vs Offline split? | Donut chart | Online 51.1% · Offline 48.9% |
 
 DAX measures: `[Total Revenue]`, `[Total Transactions]`, `[Avg Transaction Value]`, `[MoM Revenue Change %]`, `[Online Revenue %]`, `[Offline Revenue %]`
+
 
 ---
 
@@ -419,20 +423,6 @@ Most operationally specific section. Contains data integrity flags that need to 
 
 DAX measures: `[Stockout Risk Transactions]`, `[Stockout Risk %]`, `[Stores with Stockout Risk]`, `[Category Stockout Risk Rate %]`, `[Stock Gap (System minus Physical)]`, `[Stock Accuracy %]`, `[Negative System Stock Events]`, `[Has Negative System Stock]`
 
----
-
-### Section 6 — Manager Accountability *(Slides 23–27 · Audience: Store Managers)*
-
-Individual-level. Every row in every table has a manager name attached.
-
-| Q# | Question | Visual Type | Key Output |
-|---|---|---|---|
-| Q21 | What were each manager's revenue, margin, and avg basket in 2025? | Full 20-row scorecard table | Manager_10 leads $18,534 · Manager_7 last $9,407 · Manager_7 lowest margin 6.4% |
-| Q22 | How does each store rank within its own region? | 3-column regional ranking table | Central avg $15,729 is 23% above North, 30% above South |
-| Q23 | Which managers have inventory issues that likely cost them sales? | Highlighted panel: worst 4 offenders | Manager_14: 24 stockout events = 41% of own transactions |
-| Q24 | Who are the top performers across revenue, margin, and inventory discipline combined? | Composite score table, sorted ascending | STR008 rank #1 · STR012 rank #2 · STR020 rank #3 |
-
-DAX measures: `[Manager Regional Rank]`, `[Manager Stockout Events]`, `[Estimated Revenue at Inventory Risk]`, `[Inventory Risk Score]`, `[Composite Performance Score]`, `[Composite Performance Rank]`
 
 ---
 
@@ -472,17 +462,22 @@ STR007 runs a $191.97 average basket — second lowest in the network — and a 
 
 ---
 
-### Insight 4 — 19.6% of Transactions Are Running on Safety Stock
+### Insight 4 — Bottom line: The inventory is severely imbalanced — fast-moving products are running out while slow-moving ones are piling up.
 
-196 of 1,000 2025 transactions occurred when physical stock was below the reorder point. All 20 stores contributed. The total revenue processed in those at-risk moments is $53,340.
+System Data Is Unreliable (Stock Accuracy at 0.46–0.55) The Stock Accuracy Ratio is only **0.57**, meaning for every 100 units the system records, only 57 units actually exist on the shelf. This is the root problem: every reorder decision is being made on wrong numbers. The Household category has the lowest accuracy at **0.46**. I suggest a prompt audit on stock accuracy before conducting any further analysis , starting with Household and Dairy
 
-These were completed sales — not losses. But the safety stock buffer is being consumed at roughly 16 events per month network-wide. Given that monthly revenue already swings by up to $12,649 within the year (August vs March), a demand spike coinciding with depleted safety stock will produce real stockouts and real lost revenue.
+Most Inventory Is Dead Stock : From the **H1 Y2025 ONLY** table (containing latest transactions of some product_id at some specific store, which happened 6 months ago), out of 31,061 total units recorded in the first half of the year, **27,267 units (87.8%) are estimated dead stock** — meaning stock is sitting on the shelf with zero sales activity from H1 2025 onward.
 
-The two most exposed categories — Beverage (50 events) and Dairy (49 events) — are daily-use staples with no substitution tolerance. A customer who cannot find milk or a soft drink does not wait; they leave.
+Concrete examples:
 
-STR014's situation is the most urgent: 24 stockout events out of 58 total transactions means 41% of its sales in 2025 happened below reorder point. It also carries a positive system-physical gap (+3.21), meaning the system is overstating what is physically on the shelf, which delays the reorder trigger. The data and the process are both working against this store.
+- **PROD0047 at STR007**: 2 units sold, 184 units still on hand → 98.9% dead stock
+- **PROD0077 at STR013**: 3 units sold, 193 units still on hand → 98.4% dead stock
 
-Recommended actions: Review and increase Beverage and Dairy reorder points network-wide. Run a physical stock audit at STR014 and STR002 before making any reorder point changes at those two stores — their system data cannot be trusted in its current state.
+This is not a few edge cases — **351 out of 373 SKU-store combinations carry dead stock.**
+
+Inventory Turnover Is Critically Low: **Median DOI = 2,414 days (~6.6 years).** At the current rate of sale, the average SKU takes nearly 7 years to sell through.. **631 out of 800 SKU-store records have a DOI above 3 years** — that is 79% of the entire product-location list. **Median monthly turnover is just 0.012** — stock turns over roughly once every 83 months. Worst case: **PROD0007 at STR010.** Cash tied up in items with DOI over 365 days: **$1,205,320 out of a total inventory value of $1,220,506** — meaning **98.8% of total inventory value is effectively idle.**
+
+The Core Paradox: Overstocked and Understocked at the Same Time. Despite a high share of promoted transactions, several SKUs are carrying years of excess stock. At the same time, a number of units are flagged as stockout risk and sitting below reorder point. The fast-moving categories — Beverage (24.84%) and Household (23.57%) — are the most exposed. Stock is running out where it should not, and accumulating where it does not sell. This is not a budget problem. It is a buying decision problem: the wrong products are being purchased in the wrong quantities for the wrong locations.
 
 ---
 
