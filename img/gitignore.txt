@@ -1,0 +1,1 @@
+This folder contain screenshot of charts and calculations to support findings in README.md file
